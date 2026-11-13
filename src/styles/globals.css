@@ -1,0 +1,55 @@
+@import './animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: #142B43;
+    color: #142B43;
+    overflow-x: hidden;
+  }
+
+  button, input, textarea {
+    font-family: inherit;
+  }
+}
+
+/* ARCLUNOR BOLD TITLE: Montserrat 700, strictly single-line guaranteed */
+.arclunor-title-bold {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: clamp(2.2rem, 9.8vw, 11.5rem);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  line-height: 1.02;
+  color: #FFFFFF;
+  text-shadow: 0 4px 28px rgba(20, 43, 67, 0.4);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #142B43;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #6D9EBF;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #91D4F2;
+}
