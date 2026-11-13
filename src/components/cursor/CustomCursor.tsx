@@ -4,11 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
  * ============================================================================
  * CUSTOM DUAL-RING MAGNETIC CURSOR
  * Precision center dot + smooth-lerp outer magnetic expansion ring.
+ * Decoupled from animation loop to eliminate unmount/remount glitches.
  * ============================================================================
  */
 export const CustomCursor: React.FC = () => {
   const dotRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
+  const isHoveredRef = useRef(false);
   const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
@@ -16,6 +18,7 @@ export const CustomCursor: React.FC = () => {
     let mouseY = -100;
     let ringX = -100;
     let ringY = -100;
+    let ringScale = 1.0;
     let animationFrameId: number;
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -27,18 +30,23 @@ export const CustomCursor: React.FC = () => {
       }
 
       const target = e.target as HTMLElement | null;
-      const isInteractive = target?.closest('button, a, [data-magnetic="true"]');
-      setIsHovered(!!isInteractive);
+      const isInteractive = !!target?.closest('button, a, [data-magnetic="true"]');
+      if (isInteractive !== isHoveredRef.current) {
+        isHoveredRef.current = isInteractive;
+        setIsHovered(isInteractive);
+      }
     };
 
     const render = () => {
-      // Smooth lerp ring behind cursor
-      ringX += (mouseX - ringX) * 0.16;
-      ringY += (mouseY - ringY) * 0.16;
+      // Smooth exponential lerp ring behind cursor
+      ringX += (mouseX - ringX) * 0.18;
+      ringY += (mouseY - ringY) * 0.18;
+
+      const targetScale = isHoveredRef.current ? 2.2 : 1.0;
+      ringScale += (targetScale - ringScale) * 0.16;
 
       if (ringRef.current) {
-        const scale = isHovered ? 2.2 : 1.0;
-        ringRef.current.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) scale(${scale})`;
+        ringRef.current.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) scale(${ringScale})`;
       }
 
       animationFrameId = requestAnimationFrame(render);
@@ -51,7 +59,7 @@ export const CustomCursor: React.FC = () => {
       window.removeEventListener('pointermove', handlePointerMove);
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isHovered]);
+  }, []); // Run once on mount!
 
   return (
     <div className="hidden md:block pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">

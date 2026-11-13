@@ -9,7 +9,7 @@ import { createFogSystem } from './Fog';
 interface Persistent3DCrystalCanvasProps {
   reducedMotion: boolean;
   ctaHovered: boolean;
-  scrollProgress: number;
+  scrollProgress?: number;
   onReady?: () => void;
 }
 
@@ -17,32 +17,33 @@ interface Persistent3DCrystalCanvasProps {
  * ============================================================================
  * Persistent 3D Crystal & Atmospheric Azure Scene Canvas
  * High-performance WebGL canvas mounted behind all sections.
+ * Features frame-rate independent delta-time interpolation, exponential smoothing,
+ * organic orientation drift, and decoupled scroll/pointer physics.
  * ============================================================================
  */
 export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps> = ({
   reducedMotion,
   ctaHovered,
-  scrollProgress,
   onReady,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [webglSupported, setWebglSupported] = useState(true);
 
+  // High-frequency live state ref to completely avoid React re-render thrashing
   const liveRef = useRef({
     reducedMotion: false,
     ctaHovered: false,
-    mouseX: 0,
-    mouseY: 0,
-    scrollProgress: 0,
-    lastScrollY: 0,
+    rawMouseX: 0,
+    rawMouseY: 0,
+    targetScrollProgress: 0,
     scrollVelocity: 0,
+    lastScrollY: 0,
   });
 
   useEffect(() => {
     liveRef.current.reducedMotion = reducedMotion;
     liveRef.current.ctaHovered = ctaHovered;
-    liveRef.current.scrollProgress = scrollProgress;
-  }, [reducedMotion, ctaHovered, scrollProgress]);
+  }, [reducedMotion, ctaHovered]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -71,7 +72,10 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
 
     const isMobile = window.innerWidth < 768;
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+
+    // Optimized DPR limit: Capped at 1.75 on desktop and 1.25 on mobile
+    // Eliminates fragment shading bottlenecks on 4K/Retina displays while preserving razor-sharp crystal glass facets
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 1.75));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     container.innerHTML = '';
@@ -99,17 +103,21 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
     const fog = createFogSystem(isMobile);
     fog.addToScene(scene);
 
-    // Event listeners
+    // Passive pointer and scroll event listeners
     const handlePointerMove = (e: MouseEvent) => {
       const nx = (e.clientX / window.innerWidth) * 2 - 1;
       const ny = -(e.clientY / window.innerHeight) * 2 + 1;
-      liveRef.current.mouseX = nx;
-      liveRef.current.mouseY = ny;
+      liveRef.current.rawMouseX = nx;
+      liveRef.current.rawMouseY = ny;
     };
 
     const handleScroll = () => {
       const currentY = window.scrollY;
       const delta = currentY - liveRef.current.lastScrollY;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = maxScroll > 0 ? Math.min(Math.max(currentY / maxScroll, 0), 1) : 0;
+
+      liveRef.current.targetScrollProgress = progress;
       liveRef.current.scrollVelocity = delta;
       liveRef.current.lastScrollY = currentY;
     };
@@ -125,42 +133,78 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', handleResize);
 
+    // Initial scroll measurement
+    handleScroll();
+
     if (onReady) onReady();
 
-    // Render & Animation Loop
+    // =========================================================================
+    // RENDER & DELTA-TIME ANIMATION LOOP
+    // =========================================================================
     const clock = new THREE.Clock();
     let frameId: number;
-    let kineticRotX = 0;
-    let kineticRotZ = 0;
+
+    // Smooth state accumulators (frame-rate independent)
+    let accumulatedRotY = 0;
+    let currentRotSpeed = cCfg.rotationSpeedBase;
+    let smoothScrollProgress = 0;
+    let smoothMouseX = 0;
+    let smoothMouseY = 0;
+    let kineticTiltX = 0;
+    let kineticTiltZ = 0;
+    let kineticTargetX = 0;
+    let kineticTargetZ = 0;
 
     const animate = () => {
       frameId = requestAnimationFrame(animate);
+
+      // Delta time capped at 0.08s to avoid giant leaps when tab restores from background
+      const delta = Math.min(clock.getDelta(), 0.08);
       const elapsed = clock.getElapsedTime();
+
       const {
         reducedMotion: isReduced,
         ctaHovered: isHovered,
-        mouseX,
-        mouseY,
-        scrollProgress: p,
+        rawMouseX,
+        rawMouseY,
+        targetScrollProgress,
         scrollVelocity,
       } = liveRef.current;
 
       const isDesktop = window.innerWidth >= 1024;
       const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
 
-      // Update Cursor Dynamic 3D Spotlight
-      lighting.updateCursorLight(mouseX, mouseY);
+      // 1. Exponential smoothing of mouse pointer input (eliminates hand jitter)
+      const mouseDampFactor = isReduced ? 1.0 : 4.0;
+      smoothMouseX = THREE.MathUtils.damp(smoothMouseX, isReduced ? 0 : rawMouseX, mouseDampFactor, delta);
+      smoothMouseY = THREE.MathUtils.damp(smoothMouseY, isReduced ? 0 : rawMouseY, mouseDampFactor, delta);
 
-      // Kinetic scroll velocity inertia
+      // Update Cursor Dynamic 3D Spotlight with smoothed coordinates
+      lighting.updateCursorLight(smoothMouseX, smoothMouseY);
+
+      // 2. Exponential smoothing of scroll progress (interpolates discrete mouse wheel notches)
+      smoothScrollProgress = THREE.MathUtils.damp(
+        smoothScrollProgress,
+        targetScrollProgress,
+        isReduced ? 8.0 : 4.5,
+        delta
+      );
+
+      // 3. Kinetic scroll torque with exponential spring decay to neutral
       if (!isReduced) {
-        kineticRotX += scrollVelocity * cCfg.kineticInertia.factorX;
-        kineticRotZ += scrollVelocity * cCfg.kineticInertia.factorZ;
-        kineticRotX *= cCfg.kineticInertia.friction;
-        kineticRotZ *= cCfg.kineticInertia.friction;
+        kineticTargetX += scrollVelocity * cCfg.kineticInertia.factorX;
+        kineticTargetZ += scrollVelocity * cCfg.kineticInertia.factorZ;
+        // Dampen accumulated velocity
         liveRef.current.scrollVelocity *= 0.9;
       }
+      kineticTargetX = THREE.MathUtils.damp(kineticTargetX, 0, 4.0, delta);
+      kineticTargetZ = THREE.MathUtils.damp(kineticTargetZ, 0, 4.0, delta);
+      kineticTiltX = THREE.MathUtils.damp(kineticTiltX, kineticTargetX, 6.0, delta);
+      kineticTiltZ = THREE.MathUtils.damp(kineticTiltZ, kineticTargetZ, 6.0, delta);
 
-      // Scroll Keyframe Interpolation
+      // 4. Scroll Keyframe Interpolation with Hermite C1 (smoothstep) curves
+      // Eliminates abrupt directional velocity changes at section transition boundaries
+      const p = smoothScrollProgress;
       let targetX = 0;
       let targetY = 0;
       let targetZ = 0;
@@ -169,8 +213,8 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
       let targetFogDensity = fog.fogExp.density;
 
       if (p <= 0.33) {
-        // Hero -> About
-        const t = p / 0.33;
+        // Hero -> About (normalized t in [0, 1])
+        const t = THREE.MathUtils.smoothstep(p / 0.33, 0, 1);
         const hX = isDesktop ? kf.hero.targetX.desktop : isTablet ? kf.hero.targetX.tablet : kf.hero.targetX.mobile;
         const hY = isDesktop ? kf.hero.targetY.desktop : isTablet ? kf.hero.targetY.tablet : kf.hero.targetY.mobile;
         const aX = isDesktop ? kf.about.targetX.desktop : isTablet ? kf.about.targetX.tablet : kf.about.targetX.mobile;
@@ -188,7 +232,7 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
         targetFogDensity = THREE.MathUtils.lerp(kf.hero.targetFogDensity, kf.about.targetFogDensity, t);
       } else if (p <= 0.66) {
         // About -> Creations
-        const t = (p - 0.33) / 0.33;
+        const t = THREE.MathUtils.smoothstep((p - 0.33) / 0.33, 0, 1);
         const aX = isDesktop ? kf.about.targetX.desktop : isTablet ? kf.about.targetX.tablet : kf.about.targetX.mobile;
         const aY = isDesktop ? kf.about.targetY.desktop : isTablet ? kf.about.targetY.tablet : kf.about.targetY.mobile;
         const cX = isDesktop ? kf.creations.targetX.desktop : isTablet ? kf.creations.targetX.tablet : kf.creations.targetX.mobile;
@@ -206,7 +250,7 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
         targetFogDensity = THREE.MathUtils.lerp(kf.about.targetFogDensity, kf.creations.targetFogDensity, t);
       } else {
         // Creations -> Contact
-        const t = (p - 0.66) / 0.34;
+        const t = THREE.MathUtils.smoothstep((p - 0.66) / 0.34, 0, 1);
         const cX = isDesktop ? kf.creations.targetX.desktop : isTablet ? kf.creations.targetX.tablet : kf.creations.targetX.mobile;
         const cY = isDesktop ? kf.creations.targetY.desktop : isTablet ? kf.creations.targetY.tablet : kf.creations.targetY.mobile;
         const ctX = isDesktop ? kf.contact.targetX.desktop : isTablet ? kf.contact.targetX.tablet : kf.contact.targetX.mobile;
@@ -224,67 +268,69 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
         targetFogDensity = THREE.MathUtils.lerp(kf.creations.targetFogDensity, kf.contact.targetFogDensity, t);
       }
 
-      // Smooth Position Lerp
+      // 5. Continuous, Incremental Rotation Accumulator (ZERO jumps, reversals, or resets)
+      currentRotSpeed = THREE.MathUtils.damp(currentRotSpeed, targetRotSpeed, 2.5, delta);
+      accumulatedRotY += (isReduced ? 0 : currentRotSpeed) * delta;
+
+      // Organic multi-harmonic gentle orientation drift (prevents mechanical rigid spinning)
+      const organicTiltX = isReduced ? 0 : Math.sin(elapsed * 0.42) * 0.045 + Math.cos(elapsed * 0.22) * 0.02;
+      const organicTiltZ = isReduced ? 0 : Math.cos(elapsed * 0.35) * 0.035 + Math.sin(elapsed * 0.18) * 0.015;
+
+      // 6. Exponential Damping Position Update
       const floatVal = isReduced ? 0 : Math.sin(elapsed * cCfg.floating.frequency) * cCfg.floating.amplitude;
-      crystal.crystalGroup.position.x = THREE.MathUtils.lerp(
-        crystal.crystalGroup.position.x,
-        targetX + (isReduced ? 0 : mouseX * cCfg.mouseReaction.posX),
-        cCfg.lerpDamping
-      );
-      crystal.crystalGroup.position.y = THREE.MathUtils.lerp(
-        crystal.crystalGroup.position.y,
-        targetY + floatVal + (isReduced ? 0 : mouseY * cCfg.mouseReaction.posY),
-        cCfg.lerpDamping
-      );
-      crystal.crystalGroup.position.z = THREE.MathUtils.lerp(
-        crystal.crystalGroup.position.z,
-        targetZ,
-        cCfg.lerpDamping
-      );
+      const destX = targetX + (isReduced ? 0 : smoothMouseX * cCfg.mouseReaction.posX);
+      const destY = targetY + floatVal + (isReduced ? 0 : smoothMouseY * cCfg.mouseReaction.posY);
+      const destZ = targetZ;
 
-      // Smooth Rotation with Kinetic Inertia
-      crystal.crystalGroup.rotation.y = THREE.MathUtils.lerp(
-        crystal.crystalGroup.rotation.y,
-        elapsed * targetRotSpeed + (isReduced ? 0.4 : mouseX * cCfg.mouseReaction.rotY),
-        cCfg.lerpDamping
-      );
-      crystal.crystalGroup.rotation.x = THREE.MathUtils.lerp(
-        crystal.crystalGroup.rotation.x,
-        0.14 + kineticRotX + (isReduced ? 0 : Math.cos(elapsed * 0.4) * 0.04 - mouseY * cCfg.mouseReaction.rotX),
-        cCfg.lerpDamping
-      );
-      crystal.crystalGroup.rotation.z += kineticRotZ;
+      crystal.crystalGroup.position.x = THREE.MathUtils.damp(crystal.crystalGroup.position.x, destX, 5.0, delta);
+      crystal.crystalGroup.position.y = THREE.MathUtils.damp(crystal.crystalGroup.position.y, destY, 5.0, delta);
+      crystal.crystalGroup.position.z = THREE.MathUtils.damp(crystal.crystalGroup.position.z, destZ, 5.0, delta);
 
-      // Scale & CTA Hover Feedback
+      // 7. Rotation Update
+      const targetEulerY = accumulatedRotY + (isReduced ? 0.4 : smoothMouseX * cCfg.mouseReaction.rotY);
+      const targetEulerX = 0.14 + organicTiltX + kineticTiltX - (isReduced ? 0 : smoothMouseY * cCfg.mouseReaction.rotX);
+      const targetEulerZ = organicTiltZ + kineticTiltZ;
+
+      crystal.crystalGroup.rotation.y = THREE.MathUtils.damp(crystal.crystalGroup.rotation.y, targetEulerY, 6.0, delta);
+      crystal.crystalGroup.rotation.x = THREE.MathUtils.damp(crystal.crystalGroup.rotation.x, targetEulerX, 5.0, delta);
+      crystal.crystalGroup.rotation.z = THREE.MathUtils.damp(crystal.crystalGroup.rotation.z, targetEulerZ, 5.0, delta);
+
+      // 8. Scale & CTA Hover Feedback with Exponential Smoothing
       const activeScale = isHovered ? targetScale * cCfg.ctaHoverScaleMultiplier : targetScale;
-      const currentScale = THREE.MathUtils.lerp(crystal.crystalGroup.scale.x, activeScale, cCfg.lerpDamping);
+      const currentScale = THREE.MathUtils.damp(crystal.crystalGroup.scale.x, activeScale, 5.0, delta);
       crystal.crystalGroup.scale.set(currentScale, currentScale, currentScale);
 
-      // Fog Density Interpolation
-      fog.setDensity(THREE.MathUtils.lerp(fog.fogExp.density, targetFogDensity, cCfg.lerpDamping));
+      // 9. Fog Density Interpolation
+      fog.setDensity(THREE.MathUtils.damp(fog.fogExp.density, targetFogDensity, 4.0, delta));
 
-      // Stardust Particle Slow Drift
+      // 10. Ambient Stardust Particle Subtle Rotation
       if (!isReduced) {
-        crystal.stardustParticles.rotation.y = elapsed * animationConfig.stardust.driftSpeedY;
+        crystal.stardustParticles.rotation.y += delta * animationConfig.stardust.driftSpeedY;
         crystal.stardustParticles.rotation.x = Math.sin(elapsed * animationConfig.stardust.driftSpeedX) * 0.05;
       }
 
-      // Companion Shards
+      // 11. Floating Companion Shards Dynamics
       crystal.companionShards.forEach((item) => {
         const yOff = isReduced ? 0 : Math.sin(elapsed * 0.6 + item.phase) * 0.08;
-        item.mesh.position.y = item.baseY + yOff + targetY * 0.3;
-        item.mesh.position.x = item.baseX + targetX * 0.2 + (isReduced ? 0 : mouseX * 0.06);
-        if (!isReduced) item.mesh.rotation.y = item.phase + elapsed * 0.08;
+        const targetShardY = item.baseY + yOff + targetY * 0.3;
+        const targetShardX = item.baseX + targetX * 0.2 + (isReduced ? 0 : smoothMouseX * 0.06);
+
+        item.mesh.position.y = THREE.MathUtils.damp(item.mesh.position.y, targetShardY, 4.0, delta);
+        item.mesh.position.x = THREE.MathUtils.damp(item.mesh.position.x, targetShardX, 4.0, delta);
+        if (!isReduced) item.mesh.rotation.y += delta * 0.08;
       });
 
-      // Fog Planes Drift
+      // 12. Atmospheric Fog Planes Update
       fog.update(elapsed, isReduced);
 
-      // Camera Dynamics
-      camera.position.x = THREE.MathUtils.lerp(camera.position.x, isReduced ? 0 : mouseX * camCfg.mouseParallaxX, camCfg.lerpDamping);
-      camera.position.y = THREE.MathUtils.lerp(camera.position.y, isReduced ? 0 : mouseY * camCfg.mouseParallaxY, camCfg.lerpDamping);
+      // 13. Camera Dynamic Parallax
+      const camTargetX = isReduced ? 0 : smoothMouseX * camCfg.mouseParallaxX;
+      const camTargetY = isReduced ? 0 : smoothMouseY * camCfg.mouseParallaxY;
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, camTargetX, 3.5, delta);
+      camera.position.y = THREE.MathUtils.damp(camera.position.y, camTargetY, 3.5, delta);
       camera.lookAt(0.2, 0, 0);
 
+      // 14. Render
       renderer.render(scene, camera);
     };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { soundEngine } from '../services/SpatialSoundEngine';
 
 interface ScrollProgressState {
@@ -10,26 +10,44 @@ interface ScrollProgressState {
 /**
  * ============================================================================
  * Hook: useScrollProgress
- * Tracks normalized scroll progress [0, 1], scroll velocity, and active section.
+ * Tracks normalized scroll progress and active section with RAF throttling
+ * to prevent unnecessary React virtual DOM re-renders during high-frequency scrolling.
  * ============================================================================
  */
 export function useScrollProgress(sectionIds: string[] = ['hero', 'about', 'creations', 'contact']): ScrollProgressState {
   const [scrollProgress, setScrollProgress] = useState(0);
-  const [scrollVelocity, setScrollVelocity] = useState(0);
   const [activeSection, setActiveSection] = useState('hero');
+  const scrollVelocityRef = useRef(0);
+  const rafIdRef = useRef<number | null>(null);
+  const lastProgressRef = useRef(0);
 
   useEffect(() => {
     let lastScrollY = window.scrollY;
 
     const handleScroll = () => {
-      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
       const currentY = window.scrollY;
-      const progress = totalHeight > 0 ? Math.min(Math.max(currentY / totalHeight, 0), 1) : 0;
       const velocity = currentY - lastScrollY;
-
-      setScrollProgress(progress);
-      setScrollVelocity(velocity);
+      scrollVelocityRef.current = velocity;
       lastScrollY = currentY;
+
+      // Throttle React state updates to avoid thrashing on every pixel
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+          const progress = totalHeight > 0 ? Math.min(Math.max(window.scrollY / totalHeight, 0), 1) : 0;
+
+          // Only trigger React re-render if progress delta is meaningful (>= 0.005) or at bounds
+          if (
+            Math.abs(progress - lastProgressRef.current) >= 0.005 ||
+            progress === 0 ||
+            progress === 1
+          ) {
+            lastProgressRef.current = progress;
+            setScrollProgress(progress);
+          }
+        });
+      }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -62,9 +80,12 @@ export function useScrollProgress(sectionIds: string[] = ['hero', 'about', 'crea
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
       observer.disconnect();
     };
   }, [sectionIds]);
 
-  return { scrollProgress, scrollVelocity, activeSection };
+  return { scrollProgress, scrollVelocity: scrollVelocityRef.current, activeSection };
 }
