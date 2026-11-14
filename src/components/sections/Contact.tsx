@@ -3,25 +3,47 @@ import { Mail, ArrowUpRight } from 'lucide-react';
 import { ContactContent } from '../../types';
 import { PALETTE } from '../../config/theme';
 import { soundEngine } from '../../services/SpatialSoundEngine';
+import { useInView } from '../../hooks/useInView';
+import { animationConfig } from '../../config/animationConfig';
 
 interface ContactProps {
   contact: ContactContent;
+  reducedMotion?: boolean;
 }
 
 /**
  * ============================================================================
  * CONTACT SECTION COMPONENT (#contact)
  * Inquiries, collaboration avenues, direct email card & social channels.
+ * Distinct choreography: Clean, slow contemplative opacity fade-in.
  * ============================================================================
  */
-export const Contact: React.FC<ContactProps> = ({ contact }) => {
+export const Contact: React.FC<ContactProps> = ({ contact, reducedMotion = false }) => {
+  const [sectionRef, isInView] = useInView<HTMLElement>(0.15);
+  const cfg = animationConfig.sectionTransitions.contact;
+
+  const isVisible = reducedMotion || isInView;
+
   return (
     <section
+      ref={sectionRef}
       id="contact"
       className="relative z-20 w-full min-h-screen max-w-[1440px] mx-auto px-6 sm:px-12 md:px-16 py-28 sm:py-36 flex flex-col justify-center"
     >
       <div className="max-w-3xl space-y-10">
-        <div className="space-y-4">
+        {/* Header: Slow opacity fade-in */}
+        <div
+          className="space-y-4 transition-contact-fade"
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible
+              ? 'translate3d(0, 0, 0)'
+              : reducedMotion
+              ? 'none'
+              : 'translate3d(0, 16px, 0)',
+            transitionDuration: `${cfg.durationMs}ms`,
+          }}
+        >
           <p className="text-xs uppercase tracking-[0.28em] font-semibold" style={{ color: PALETTE.blueGrey }}>
             {contact.eyebrow}
           </p>
@@ -33,15 +55,23 @@ export const Contact: React.FC<ContactProps> = ({ contact }) => {
           </p>
         </div>
 
-        {/* Direct Studio Email Box */}
+        {/* Direct Studio Email Box: Clean slow fade with soft delay */}
         <div
           data-magnetic="true"
           onMouseEnter={() => soundEngine.playGlassChime(1500)}
-          className="p-8 rounded-3xl border backdrop-blur-md space-y-4"
+          className="p-8 rounded-3xl border backdrop-blur-md space-y-4 transition-contact-fade"
           style={{
             backgroundColor: 'rgba(234, 248, 255, 0.8)',
             borderColor: PALETTE.iceBlue,
             boxShadow: '0 20px 60px rgba(20, 43, 67, 0.08)',
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible
+              ? 'translate3d(0, 0, 0)'
+              : reducedMotion
+              ? 'none'
+              : 'translate3d(0, 20px, 0)',
+            transitionDuration: `${cfg.durationMs}ms`,
+            transitionDelay: reducedMotion ? '0ms' : `${cfg.cardDelayMs}ms`,
           }}
         >
           <div className="text-xs uppercase tracking-widest font-semibold" style={{ color: PALETTE.blueGrey }}>
@@ -56,13 +86,25 @@ export const Contact: React.FC<ContactProps> = ({ contact }) => {
           </a>
         </div>
 
-        {/* Social Presence Grid */}
-        <div className="space-y-3 pt-2">
+        {/* Social Presence Grid: Slow fade-in with sequential delays */}
+        <div
+          className="space-y-3 pt-2 transition-contact-fade"
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transform: isVisible
+              ? 'translate3d(0, 0, 0)'
+              : reducedMotion
+              ? 'none'
+              : 'translate3d(0, 16px, 0)',
+            transitionDuration: `${cfg.durationMs}ms`,
+            transitionDelay: reducedMotion ? '0ms' : `${cfg.socialsDelayMs}ms`,
+          }}
+        >
           <p className="text-xs uppercase tracking-widest font-semibold" style={{ color: PALETTE.blueGrey }}>
             Social Presence
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {contact.socials.map((soc) => (
+            {contact.socials.map((soc, i) => (
               <a
                 key={soc.platform}
                 href={soc.url}
@@ -72,7 +114,11 @@ export const Contact: React.FC<ContactProps> = ({ contact }) => {
                   if (soc.url.startsWith('#')) e.preventDefault();
                 }}
                 className="p-4 rounded-2xl border flex items-center justify-between text-sm group backdrop-blur-sm transition-all hover:-translate-y-1"
-                style={{ backgroundColor: PALETTE.cloudWhite, borderColor: PALETTE.iceBlue }}
+                style={{
+                  backgroundColor: PALETTE.cloudWhite,
+                  borderColor: PALETTE.iceBlue,
+                  transitionDelay: reducedMotion ? '0ms' : `${cfg.socialsDelayMs + i * 80}ms`,
+                }}
               >
                 <span className="font-semibold">{soc.platform}</span>
                 <span className="flex items-center gap-1 text-xs opacity-60">

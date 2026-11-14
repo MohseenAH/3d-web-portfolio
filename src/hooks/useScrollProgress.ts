@@ -10,8 +10,8 @@ interface ScrollProgressState {
 /**
  * ============================================================================
  * Hook: useScrollProgress
- * Tracks normalized scroll progress and active section with RAF throttling
- * to prevent unnecessary React virtual DOM re-renders during high-frequency scrolling.
+ * Tracks normalized scroll progress [0, 1] and active section smoothly on scroll.
+ * Uses requestAnimationFrame batching to synchronize with display refresh cycles.
  * ============================================================================
  */
 export function useScrollProgress(sectionIds: string[] = ['hero', 'about', 'creations', 'contact']): ScrollProgressState {
@@ -19,10 +19,16 @@ export function useScrollProgress(sectionIds: string[] = ['hero', 'about', 'crea
   const [activeSection, setActiveSection] = useState('hero');
   const scrollVelocityRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
-  const lastProgressRef = useRef(0);
 
   useEffect(() => {
     let lastScrollY = window.scrollY;
+
+    const computeProgress = () => {
+      const currentY = window.scrollY;
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = totalHeight > 0 ? Math.min(Math.max(currentY / totalHeight, 0), 1) : 0;
+      return progress;
+    };
 
     const handleScroll = () => {
       const currentY = window.scrollY;
@@ -30,28 +36,17 @@ export function useScrollProgress(sectionIds: string[] = ['hero', 'about', 'crea
       scrollVelocityRef.current = velocity;
       lastScrollY = currentY;
 
-      // Throttle React state updates to avoid thrashing on every pixel
       if (rafIdRef.current === null) {
         rafIdRef.current = requestAnimationFrame(() => {
           rafIdRef.current = null;
-          const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
-          const progress = totalHeight > 0 ? Math.min(Math.max(window.scrollY / totalHeight, 0), 1) : 0;
-
-          // Only trigger React re-render if progress delta is meaningful (>= 0.005) or at bounds
-          if (
-            Math.abs(progress - lastProgressRef.current) >= 0.005 ||
-            progress === 0 ||
-            progress === 1
-          ) {
-            lastProgressRef.current = progress;
-            setScrollProgress(progress);
-          }
+          setScrollProgress(computeProgress());
         });
       }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
+    // Initial measurement
+    setScrollProgress(computeProgress());
 
     // Intersection observer for section tracking
     const observerOptions: IntersectionObserverInit = {

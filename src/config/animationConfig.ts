@@ -3,9 +3,9 @@ import { AnimationConfig } from '../types';
 /**
  * ============================================================================
  * ARCLUNOR — Centralized Animation & 3D Environment Configuration
- * Modify 3D crystal motion, camera dynamics, particles, and fog here.
- * Micro-level AI modifications (e.g., "slow down rotation", "make crystal 10% smaller")
- * should be applied directly in this file.
+ * Modify 3D crystal motion, camera dynamics, particles, fog, and section
+ * entrance transitions here.
+ * Micro-level AI modifications should be applied directly in this file.
  * ============================================================================
  */
 export const animationConfig: AnimationConfig = {
@@ -132,6 +132,31 @@ export const animationConfig: AnimationConfig = {
       targetScale: { desktop: 0.42, mobile: 0.32 },
       targetRotSpeed: 0.05,
       targetFogDensity: 0.018,
+    },
+  },
+
+  // Individual section entrance choreography timings & parameters
+  sectionTransitions: {
+    hero: {
+      letterStaggerMs: 60,
+      baseDelayMs: 120,
+      headlineDelayMs: 500,
+      ctaDelayMs: 700,
+    },
+    about: {
+      headerSlideDistancePx: 28,
+      pillarStaggerMs: 160,
+      durationMs: 900,
+    },
+    creations: {
+      cardStaggerMs: 180,
+      initialScale: 0.93,
+      durationMs: 800,
+    },
+    contact: {
+      cardDelayMs: 200,
+      socialsDelayMs: 400,
+      durationMs: 1000,
     },
   },
 };

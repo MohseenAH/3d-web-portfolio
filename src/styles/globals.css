@@ -8,6 +8,7 @@
   html {
     scroll-behavior: smooth;
     color-scheme: light;
+    min-height: 100%;
   }
 
   body {
@@ -17,6 +18,11 @@
     background-color: #142B43;
     color: #142B43;
     overflow-x: hidden;
+    min-height: 100%;
+  }
+
+  #root {
+    min-height: 100%;
   }
 
   button, input, textarea {

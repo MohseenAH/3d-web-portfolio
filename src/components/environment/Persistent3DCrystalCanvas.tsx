@@ -9,7 +9,7 @@ import { createFogSystem } from './Fog';
 interface Persistent3DCrystalCanvasProps {
   reducedMotion: boolean;
   ctaHovered: boolean;
-  scrollProgress?: number;
+  scrollProgress: number;
   onReady?: () => void;
 }
 
@@ -24,26 +24,30 @@ interface Persistent3DCrystalCanvasProps {
 export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps> = ({
   reducedMotion,
   ctaHovered,
+  scrollProgress,
   onReady,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [webglSupported, setWebglSupported] = useState(true);
 
   // High-frequency live state ref to completely avoid React re-render thrashing
+  // and prevent stale closures inside the requestAnimationFrame loop
   const liveRef = useRef({
     reducedMotion: false,
     ctaHovered: false,
+    scrollProgress: 0,
     rawMouseX: 0,
     rawMouseY: 0,
-    targetScrollProgress: 0,
     scrollVelocity: 0,
     lastScrollY: 0,
   });
 
+  // Keep liveRef strictly in sync with incoming React props
   useEffect(() => {
     liveRef.current.reducedMotion = reducedMotion;
     liveRef.current.ctaHovered = ctaHovered;
-  }, [reducedMotion, ctaHovered]);
+    liveRef.current.scrollProgress = scrollProgress;
+  }, [reducedMotion, ctaHovered, scrollProgress]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -114,10 +118,6 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
     const handleScroll = () => {
       const currentY = window.scrollY;
       const delta = currentY - liveRef.current.lastScrollY;
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = maxScroll > 0 ? Math.min(Math.max(currentY / maxScroll, 0), 1) : 0;
-
-      liveRef.current.targetScrollProgress = progress;
       liveRef.current.scrollVelocity = delta;
       liveRef.current.lastScrollY = currentY;
     };
@@ -162,12 +162,13 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
       const delta = Math.min(clock.getDelta(), 0.08);
       const elapsed = clock.getElapsedTime();
 
+      // Read mutable liveRef values directly inside the RAF loop (avoids stale closures)
       const {
         reducedMotion: isReduced,
         ctaHovered: isHovered,
+        scrollProgress: targetScrollProgress,
         rawMouseX,
         rawMouseY,
-        targetScrollProgress,
         scrollVelocity,
       } = liveRef.current;
 
@@ -182,7 +183,7 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
       // Update Cursor Dynamic 3D Spotlight with smoothed coordinates
       lighting.updateCursorLight(smoothMouseX, smoothMouseY);
 
-      // 2. Exponential smoothing of scroll progress (interpolates discrete mouse wheel notches)
+      // 2. Exponential smoothing of scroll progress across keyframes
       smoothScrollProgress = THREE.MathUtils.damp(
         smoothScrollProgress,
         targetScrollProgress,
@@ -194,7 +195,6 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
       if (!isReduced) {
         kineticTargetX += scrollVelocity * cCfg.kineticInertia.factorX;
         kineticTargetZ += scrollVelocity * cCfg.kineticInertia.factorZ;
-        // Dampen accumulated velocity
         liveRef.current.scrollVelocity *= 0.9;
       }
       kineticTargetX = THREE.MathUtils.damp(kineticTargetX, 0, 4.0, delta);
@@ -203,7 +203,7 @@ export const Persistent3DCrystalCanvas: React.FC<Persistent3DCrystalCanvasProps>
       kineticTiltZ = THREE.MathUtils.damp(kineticTiltZ, kineticTargetZ, 6.0, delta);
 
       // 4. Scroll Keyframe Interpolation with Hermite C1 (smoothstep) curves
-      // Eliminates abrupt directional velocity changes at section transition boundaries
+      // 0.0 = Hero, 0.33 = About, 0.66 = Creations, 1.0 = Contact
       const p = smoothScrollProgress;
       let targetX = 0;
       let targetY = 0;

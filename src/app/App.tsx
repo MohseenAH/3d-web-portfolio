@@ -23,6 +23,7 @@ import { DeveloperDataModal } from '../components/developer/DeveloperDataModal';
  * ============================================================================
  * MAIN APPLICATION — ARCLUNOR AWWWARDS-GRADE 3D PORTFOLIO
  * Modular, component-driven architecture with centralized AI-editable configs.
+ * Single persistent 3D canvas mounted at the root with distinct section choreographies.
  * ============================================================================
  */
 export default function App() {
@@ -100,7 +101,7 @@ export default function App() {
         }}
       />
 
-      {/* ONE PERSISTENT 3D CRYSTAL CANVAS MOUNTED BEHIND ALL SECTIONS */}
+      {/* ONE PERSISTENT 3D CRYSTAL CANVAS MOUNTED ONLY ONCE AT ROOT */}
       <Persistent3DCrystalCanvas
         reducedMotion={reducedMotion}
         ctaHovered={ctaHovered}
@@ -131,7 +132,7 @@ export default function App() {
         onNavigate={scrollToSection}
       />
 
-      {/* MAIN SECTIONS */}
+      {/* MAIN SECTIONS WITH INDIVIDUAL CHOREOGRAPHIES */}
       <main>
         {/* SECTION 1 — HERO (#hero) */}
         <Hero
@@ -143,17 +144,24 @@ export default function App() {
           onExploreClick={() => scrollToSection('creations')}
         />
 
-        {/* SECTION 2 — ABOUT (#about) */}
-        <About about={siteContent.about} />
+        {/* SECTION 2 — ABOUT (#about): Subtle horizontal slide-in with staggered pillars */}
+        <About
+          about={siteContent.about}
+          reducedMotion={reducedMotion}
+        />
 
-        {/* SECTION 3 — CREATIONS (#creations) */}
+        {/* SECTION 3 — CREATIONS (#creations): Staggered scale-and-fade for 3D tilt cards */}
         <Creations
           creations={siteContent.creations}
           onSelectCreation={(creation) => setSelectedCreation(creation)}
+          reducedMotion={reducedMotion}
         />
 
-        {/* SECTION 4 — CONTACT (#contact) */}
-        <Contact contact={siteContent.contact} />
+        {/* SECTION 4 — CONTACT (#contact): Clean, slow contemplative opacity fade */}
+        <Contact
+          contact={siteContent.contact}
+          reducedMotion={reducedMotion}
+        />
       </main>
 
       {/* SECTION 5 — FOOTER */}

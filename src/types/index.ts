@@ -92,6 +92,30 @@ export interface SectionKeyframe {
   targetFogDensity: number;
 }
 
+export interface SectionTransitionsConfig {
+  hero: {
+    letterStaggerMs: number;
+    baseDelayMs: number;
+    headlineDelayMs: number;
+    ctaDelayMs: number;
+  };
+  about: {
+    headerSlideDistancePx: number;
+    pillarStaggerMs: number;
+    durationMs: number;
+  };
+  creations: {
+    cardStaggerMs: number;
+    initialScale: number;
+    durationMs: number;
+  };
+  contact: {
+    cardDelayMs: number;
+    socialsDelayMs: number;
+    durationMs: number;
+  };
+}
+
 export interface AnimationConfig {
   crystal: {
     baseRadius: number;
@@ -155,6 +179,7 @@ export interface AnimationConfig {
     creations: SectionKeyframe;
     contact: SectionKeyframe;
   };
+  sectionTransitions: SectionTransitionsConfig;
 }
 
 export interface ThemeConfig {
